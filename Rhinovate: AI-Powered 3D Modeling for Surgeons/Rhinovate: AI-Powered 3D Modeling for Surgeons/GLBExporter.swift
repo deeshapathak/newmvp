@@ -8,6 +8,7 @@
 
 import Foundation
 import simd
+import UIKit
 
 enum GLBExportError: LocalizedError {
     case invalidMesh
@@ -60,8 +61,8 @@ class GLBExporter {
     
     private func createGLBData(from mesh: FaceMesh) throws -> (jsonData: Data, binData: Data) {
         // Create binary buffer with interleaved vertex data
-        // Format: [POSITION (vec3), NORMAL (vec3)] for each vertex
-        let vertexStride = MemoryLayout<Float>.size * 6 // 3 for position + 3 for normal
+        // Format: [POSITION (vec3), NORMAL (vec3), TEXCOORD_0 (vec2)] for each vertex
+        let vertexStride = MemoryLayout<Float>.size * 8 // 3 for position + 3 for normal + 2 for UV
         let vertexBufferSize = mesh.vertices.count * vertexStride
         var vertexBuffer = Data(capacity: vertexBufferSize)
         
@@ -69,6 +70,7 @@ class GLBExporter {
         for i in 0..<mesh.vertices.count {
             let position = mesh.vertices[i]
             let normal = mesh.normals[i]
+            let uv = mesh.uvs[i]
             
             // Write position (vec3 Float32)
             withUnsafeBytes(of: position.x) { vertexBuffer.append(contentsOf: $0) }
@@ -79,6 +81,10 @@ class GLBExporter {
             withUnsafeBytes(of: normal.x) { vertexBuffer.append(contentsOf: $0) }
             withUnsafeBytes(of: normal.y) { vertexBuffer.append(contentsOf: $0) }
             withUnsafeBytes(of: normal.z) { vertexBuffer.append(contentsOf: $0) }
+            
+            // Write UV (vec2 Float32)
+            withUnsafeBytes(of: uv.x) { vertexBuffer.append(contentsOf: $0) }
+            withUnsafeBytes(of: uv.y) { vertexBuffer.append(contentsOf: $0) }
         }
         
         // Create index buffer
@@ -89,14 +95,34 @@ class GLBExporter {
             withUnsafeBytes(of: index) { indexBuffer.append(contentsOf: $0) }
         }
         
-        // Combine buffers: vertex data first, then indices
+        // Combine buffers: vertex data first, then indices, then texture
         // Align to 4-byte boundary
         var binData = vertexBuffer
-        let padding = (4 - (binData.count % 4)) % 4
-        binData.append(Data(repeating: 0, count: padding))
+        let padding1 = (4 - (binData.count % 4)) % 4
+        binData.append(Data(repeating: 0, count: padding1))
         
         let indexBufferOffset = binData.count
         binData.append(indexBuffer)
+        
+        let padding2 = (4 - (binData.count % 4)) % 4
+        binData.append(Data(repeating: 0, count: padding2))
+        
+        // Add texture image if available
+        var textureOffset: Int? = nil
+        var textureSize: Int = 0
+        var textureMimeType: String = "image/png"
+        
+        if let texture = mesh.texture,
+           let textureData = texture.pngData() {
+            textureOffset = binData.count
+            textureSize = textureData.count
+            binData.append(textureData)
+            
+            // Align texture to 4-byte boundary
+            let padding3 = (4 - (binData.count % 4)) % 4
+            binData.append(Data(repeating: 0, count: padding3))
+            textureSize += padding3
+        }
         
         // Compute min/max bounds from vertices
         let (minBounds, maxBounds) = computeBounds(vertices: mesh.vertices)
@@ -108,7 +134,11 @@ class GLBExporter {
             vertexBufferSize: vertexBuffer.count,
             indexBufferOffset: indexBufferOffset,
             minBounds: minBounds,
-            maxBounds: maxBounds
+            maxBounds: maxBounds,
+            hasTexture: textureOffset != nil,
+            textureOffset: textureOffset ?? 0,
+            textureSize: textureSize,
+            textureMimeType: textureMimeType
         )
         
         guard let jsonData = json.data(using: .utf8) else {
@@ -148,11 +178,62 @@ class GLBExporter {
         vertexBufferSize: Int,
         indexBufferOffset: Int,
         minBounds: SIMD3<Float>,
-        maxBounds: SIMD3<Float>
+        maxBounds: SIMD3<Float>,
+        hasTexture: Bool,
+        textureOffset: Int,
+        textureSize: Int,
+        textureMimeType: String
     ) -> String {
         // glTF 2.0 structure
         // Coordinate system: Right-handed, Y-up (glTF standard)
         // ARKit uses right-handed Y-up, so we use as-is
+        
+        // Build attributes JSON
+        var attributesJSON = """
+                    "POSITION": 0,
+                    "NORMAL": 1,
+                    "TEXCOORD_0": 3
+        """
+        
+        // Build material JSON
+        var materialJSON = ""
+        if hasTexture {
+            materialJSON = """
+          "materials": [
+            {
+              "pbrMetallicRoughness": {
+                "baseColorTexture": {
+                  "index": 0
+                },
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.5
+              }
+            }
+          ],
+          "textures": [
+            {
+              "sampler": 0,
+              "source": 0
+            }
+          ],
+          "samplers": [
+            {
+              "magFilter": 9729,
+              "minFilter": 9729,
+              "wrapS": 10497,
+              "wrapT": 10497
+            }
+          ],
+          "images": [
+            {
+              "mimeType": "\(textureMimeType)",
+              "bufferView": 4
+            }
+          ],
+"""
+        }
+        
+        let totalBufferSize = vertexBufferSize + (indexCount * MemoryLayout<UInt32>.size) + ((4 - (vertexBufferSize % 4)) % 4) + (hasTexture ? textureSize : 0)
         
         let json = """
         {
@@ -176,10 +257,9 @@ class GLBExporter {
               "primitives": [
                 {
                   "attributes": {
-                    "POSITION": 0,
-                    "NORMAL": 1
+                    \(attributesJSON)
                   },
-                  "indices": 2
+                  "indices": 2\(hasTexture ? ",\n                  \"material\": 0" : "")
                 }
               ]
             }
@@ -204,6 +284,12 @@ class GLBExporter {
               "componentType": 5125,
               "count": \(indexCount),
               "type": "SCALAR"
+            },
+            {
+              "bufferView": 3,
+              "componentType": 5126,
+              "count": \(vertexCount),
+              "type": "VEC2"
             }
           ],
           "bufferViews": [
@@ -211,25 +297,31 @@ class GLBExporter {
               "buffer": 0,
               "byteOffset": 0,
               "byteLength": \(vertexBufferSize),
-              "byteStride": 24
+              "byteStride": 32
             },
             {
               "buffer": 0,
               "byteOffset": 12,
               "byteLength": \(vertexBufferSize - 12),
-              "byteStride": 24
+              "byteStride": 32
             },
             {
               "buffer": 0,
               "byteOffset": \(indexBufferOffset),
               "byteLength": \(indexCount * MemoryLayout<UInt32>.size)
-            }
+            },
+            {
+              "buffer": 0,
+              "byteOffset": 24,
+              "byteLength": \(vertexBufferSize - 24),
+              "byteStride": 32
+            }\(hasTexture ? ",\n            {\n              \"buffer\": 0,\n              \"byteOffset\": \(textureOffset),\n              \"byteLength\": \(textureSize)\n            }" : "")
           ],
           "buffers": [
             {
-              "byteLength": \(vertexBufferSize + (indexCount * MemoryLayout<UInt32>.size) + ((4 - (vertexBufferSize % 4)) % 4))
+              "byteLength": \(totalBufferSize)
             }
-          ]
+          ]\(materialJSON.isEmpty ? "" : ",\n\(materialJSON)")
         }
         """
         

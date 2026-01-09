@@ -62,6 +62,36 @@ struct CaptureView: View {
                     .background(Color.black.opacity(0.6))
                     .cornerRadius(8)
                     
+                    // Distance Indicator
+                    if let distance = captureManager.faceDistance {
+                        HStack {
+                            Image(systemName: distanceIcon(distance))
+                                .foregroundColor(distanceColor(distance))
+                            Text("Distance: \(distanceText(distance))")
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                    }
+                    
+                    // Lighting Indicator
+                    if let brightness = captureManager.averageBrightness {
+                        HStack {
+                            Image(systemName: brightnessIcon(brightness))
+                                .foregroundColor(brightnessColor(brightness))
+                            Text("Lighting: \(brightnessText(brightness))")
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                    }
+                    
                     // Capture Progress
                     if captureManager.isCapturing {
                         VStack(spacing: 4) {
@@ -163,6 +193,68 @@ struct CaptureView: View {
             return "limited"
         case .notAvailable:
             return "not available"
+        }
+    }
+    
+    // MARK: - Distance Helpers
+    private func distanceIcon(_ distance: Float) -> String {
+        if distance < 0.3 {
+            return "arrow.down.circle.fill" // Too close
+        } else if distance > 0.7 {
+            return "arrow.up.circle.fill" // Too far
+        } else {
+            return "checkmark.circle.fill" // Good
+        }
+    }
+    
+    private func distanceColor(_ distance: Float) -> Color {
+        if distance < 0.3 {
+            return .orange
+        } else if distance > 0.7 {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+    
+    private func distanceText(_ distance: Float) -> String {
+        if distance < 0.3 {
+            return "too close"
+        } else if distance > 0.7 {
+            return "too far"
+        } else {
+            return "good"
+        }
+    }
+    
+    // MARK: - Brightness Helpers
+    private func brightnessIcon(_ brightness: Float) -> String {
+        if brightness < 0.3 {
+            return "lightbulb.slash.fill"
+        } else if brightness > 0.7 {
+            return "lightbulb.fill"
+        } else {
+            return "lightbulb"
+        }
+    }
+    
+    private func brightnessColor(_ brightness: Float) -> Color {
+        if brightness < 0.3 {
+            return .orange
+        } else if brightness > 0.7 {
+            return .yellow
+        } else {
+            return .green
+        }
+    }
+    
+    private func brightnessText(_ brightness: Float) -> String {
+        if brightness < 0.3 {
+            return "too dark"
+        } else if brightness > 0.7 {
+            return "bright"
+        } else {
+            return "good"
         }
     }
 }

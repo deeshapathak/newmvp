@@ -47,9 +47,14 @@ struct ARFaceTrackingView: UIViewRepresentable {
         }
         
         func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+            // Get the current frame only when we need it, and don't retain it
+            // Process immediately and let it be released
+            let frame = session.currentFrame
+            
             for anchor in anchors {
                 if let faceAnchor = anchor as? ARFaceAnchor {
-                    captureManager.processFaceAnchor(faceAnchor)
+                    // Process immediately - don't store the frame
+                    captureManager.processFaceAnchor(faceAnchor, frame: frame)
                 }
             }
         }

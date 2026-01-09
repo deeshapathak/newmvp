@@ -16,12 +16,14 @@ struct PreviewView: View {
     @State private var showExportError = false
     @State private var exportErrorMessage = ""
     @State private var exportedFileURL: URL?
+    @State private var useLitMaterial: Bool = false
     
     var body: some View {
         ZStack {
             // 3D Mesh Viewer
             if let mesh = captureManager.capturedMesh {
-                MeshView3D(mesh: mesh)
+                MeshView3D(mesh: mesh, useLitMaterial: useLitMaterial)
+                    .id(mesh.texture != nil ? "textured" : "untextured") // Force update when texture changes
                     .edgesIgnoringSafeArea(.all)
             } else {
                 Color.black
@@ -33,6 +35,29 @@ struct PreviewView: View {
                 Spacer()
                 
                 VStack(spacing: 16) {
+                    // Lit/Unlit Toggle
+                    if captureManager.capturedMesh?.texture != nil {
+                        Toggle(isOn: $useLitMaterial) {
+                            Text(useLitMaterial ? "Lit Material" : "Unlit Material")
+                                .foregroundColor(.white)
+                        }
+                        .padding()
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                    }
+                    
+                    // Cloud Upload Button
+                    Button(action: {
+                        showCloudUpload = true
+                    }) {
+                        Text("Upload to Cloud")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    
                     // Export GLB Button
                     Button(action: {
                         exportGLB()
@@ -98,6 +123,10 @@ struct PreviewView: View {
                 ShareSheet(activityItems: [url])
             }
         }
+        .sheet(isPresented: $showCloudUpload) {
+            CloudUploadView()
+                .environmentObject(captureManager)
+        }
         .alert("Export Successful", isPresented: $showExportSuccess) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -138,6 +167,7 @@ struct PreviewView: View {
 // MARK: - 3D Mesh Viewer
 struct MeshView3D: UIViewRepresentable {
     let mesh: FaceMesh
+    let useLitMaterial: Bool
     
     func makeUIView(context: Context) -> ARView {
         let arView = ARView(frame: .zero)
@@ -148,8 +178,37 @@ struct MeshView3D: UIViewRepresentable {
             return arView
         }
         
-        // Create material
-        let material = SimpleMaterial(color: .lightGray, isMetallic: false)
+        // Create material with texture if available
+        let material: RealityKit.Material
+        if let texture = mesh.texture {
+            print("MeshView3D: Applying texture to mesh, size: \(texture.size)")
+            
+            if let cgImage = texture.cgImage,
+               let textureResource = try? TextureResource.generate(from: cgImage, options: .init(semantic: .color)) {
+                if useLitMaterial {
+                    var simpleMaterial = SimpleMaterial()
+                    simpleMaterial.color = .init(texture: .init(textureResource))
+                    simpleMaterial.roughness = 0.5
+                    simpleMaterial.metallic = 0.0
+                    material = simpleMaterial
+                    print("MeshView3D: Applied lit material with texture")
+                } else {
+                    var unlitMaterial = UnlitMaterial()
+                    unlitMaterial.color = .init(texture: .init(textureResource))
+                    material = unlitMaterial
+                    print("MeshView3D: Applied unlit material with texture")
+                }
+            } else {
+                print("MeshView3D: Failed to create texture resource from image")
+                // Fall through to default material
+                var simpleMaterial = SimpleMaterial()
+                simpleMaterial.color = .init(tint: .gray)
+                material = simpleMaterial
+            }
+        } else {
+            print("MeshView3D: No texture available, using default gray material")
+            material = SimpleMaterial(color: .lightGray, isMetallic: false)
+        }
         
         // Create model entity
         let modelEntity = ModelEntity(mesh: meshResource, materials: [material])
@@ -173,7 +232,45 @@ struct MeshView3D: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: ARView, context: Context) {
-        // Update if needed
+        // Update material when texture is added or lit/unlit changes
+        guard let anchor = uiView.scene.anchors.first as? AnchorEntity,
+              let modelEntity = anchor.children.first as? ModelEntity else {
+            return
+        }
+        
+        // Create new material based on current mesh state
+        let material: RealityKit.Material
+        if let texture = mesh.texture {
+            print("MeshView3D updateUIView: Applying texture to mesh, size: \(texture.size)")
+            
+            if let cgImage = texture.cgImage,
+               let textureResource = try? TextureResource.generate(from: cgImage, options: .init(semantic: .color)) {
+                if useLitMaterial {
+                    var simpleMaterial = SimpleMaterial()
+                    simpleMaterial.color = .init(texture: .init(textureResource))
+                    simpleMaterial.roughness = 0.5
+                    simpleMaterial.metallic = 0.0
+                    material = simpleMaterial
+                    print("MeshView3D updateUIView: Applied lit material with texture")
+                } else {
+                    var unlitMaterial = UnlitMaterial()
+                    unlitMaterial.color = .init(texture: .init(textureResource))
+                    material = unlitMaterial
+                    print("MeshView3D updateUIView: Applied unlit material with texture")
+                }
+            } else {
+                print("MeshView3D updateUIView: Failed to create texture resource")
+                var simpleMaterial = SimpleMaterial()
+                simpleMaterial.color = .init(tint: .gray)
+                material = simpleMaterial
+            }
+        } else {
+            print("MeshView3D updateUIView: No texture, using gray material")
+            material = SimpleMaterial(color: .lightGray, isMetallic: false)
+        }
+        
+        // Update the model entity's material
+        modelEntity.model?.materials = [material]
     }
     
     func makeCoordinator() -> Coordinator {
@@ -202,6 +299,14 @@ struct MeshView3D: UIViewRepresentable {
             normals.append(normal)
         }
         meshDescriptor.normals = MeshBuffers.Normals(normals)
+        
+        // UVs
+        var uvs: [SIMD2<Float>] = []
+        uvs.reserveCapacity(mesh.uvs.count)
+        for uv in mesh.uvs {
+            uvs.append(uv)
+        }
+        meshDescriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
         
         // Indices
         let indices = mesh.indices

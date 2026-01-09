@@ -1,0 +1,25 @@
+name = "rhinovate-capture-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+[[env.production.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "rhinovate-captures"
+
+[[env.production.kv_namespaces]]
+binding = "CAPTURES_KV"
+id = "your-kv-namespace-id"
+preview_id = "your-kv-preview-id"
+
+# Environment variables (set via wrangler secret put)
+# R2_ACCOUNT_ID
+# R2_ACCESS_KEY_ID
+# R2_SECRET_ACCESS_KEY
+# R2_BUCKET_NAME
+# WORKER_SECRET
+# API_KEY (optional)
+# RENDER_WORKER_URL
+
