@@ -17,7 +17,7 @@ struct CloudUploadView: View {
     @State private var showResult = false
     
     private let apiClient = APIClient(
-        baseURL: "https://your-worker.workers.dev", // TODO: Configure
+        baseURL: "https://rhinovate-capture-api.pathakdeesha.workers.dev",
         apiKey: nil // TODO: Add if needed
     )
     
