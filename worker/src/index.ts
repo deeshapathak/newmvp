@@ -63,6 +63,20 @@ export default {
         return await updateStatus(request, env, captureId);
       }
 
+      // Direct upload endpoint (simpler than presigned URLs)
+      if (path.startsWith('/v1/upload/') && request.method === 'PUT') {
+        const captureId = path.split('/')[3];
+        const objectKey = `captures/${captureId}/capture.zip`;
+        const data = await request.arrayBuffer();
+        await env.R2_BUCKET.put(objectKey, data, {
+          httpMetadata: { contentType: 'application/zip' },
+        });
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       return new Response('Not Found', { status: 404, headers: corsHeaders });
     } catch (error) {
       console.error('Error:', error);

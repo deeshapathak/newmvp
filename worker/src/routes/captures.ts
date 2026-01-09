@@ -24,16 +24,9 @@ export async function createCapture(request: Request, env: Env): Promise<Respons
   // Initialize state
   await initializeCaptureState(env.CAPTURES_KV, captureId);
   
-  // Generate presigned PUT URL for capture.zip
-  const objectKey = `captures/${captureId}/capture.zip`;
-  const uploadURL = await generatePresignedURL({
-    method: 'PUT',
-    bucket: env.R2_BUCKET_NAME,
-    key: objectKey,
-    expiresIn: 3600, // 1 hour
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-  });
+  // Use direct upload endpoint (simpler - Worker handles upload)
+  const baseURL = new URL(request.url).origin;
+  const uploadURL = `${baseURL}/v1/upload/${captureId}`;
   
   const response = {
     captureId,

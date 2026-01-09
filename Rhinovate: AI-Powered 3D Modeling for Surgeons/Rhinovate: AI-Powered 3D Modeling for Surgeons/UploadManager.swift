@@ -12,11 +12,11 @@ class UploadManager: NSObject {
     private var progressHandler: ((Double) -> Void)?
     private var completionHandler: ((Result<Void, Error>) -> Void)?
     
-    func upload(fileURL: URL, to presignedURL: String, headers: [String: String]? = nil, progress: @escaping (Double) -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
+    func upload(fileURL: URL, to uploadURL: String, headers: [String: String]? = nil, progress: @escaping (Double) -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
         self.progressHandler = progress
         self.completionHandler = completion
         
-        guard let url = URL(string: presignedURL) else {
+        guard let url = URL(string: uploadURL) else {
             completion(.failure(UploadError.invalidURL))
             return
         }
@@ -25,9 +25,11 @@ class UploadManager: NSObject {
         request.httpMethod = "PUT"
         request.setValue("application/zip", forHTTPHeaderField: "Content-Type")
         
-        // Add custom headers if provided
+        // Add API key if in headers
         headers?.forEach { key, value in
-            request.setValue(value, forHTTPHeaderField: key)
+            if key != "Content-Type" { // Don't override Content-Type
+                request.setValue(value, forHTTPHeaderField: key)
+            }
         }
         
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
