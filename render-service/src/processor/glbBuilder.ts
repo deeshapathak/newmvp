@@ -24,13 +24,10 @@ export async function buildGLB(data: GLBData): Promise<Buffer> {
 
   // Create material with PBR
   const material = document.createMaterial('faceMaterial');
-  const pbr = material.getExtension('KHR_materials_pbrMetallicRoughness') || 
-              material.createExtension('KHR_materials_pbrMetallicRoughness');
-  if (pbr) {
-    pbr.setBaseColorTexture(texture);
-    pbr.setMetallicFactor(0.0);
-    pbr.setRoughnessFactor(0.5);
-  }
+  // In gltf-transform v3, PBR properties are directly on material
+  material.setBaseColorTexture(texture);
+  material.setMetallicFactor(0.0);
+  material.setRoughnessFactor(0.5);
 
   // Create mesh
   const mesh = document.createMesh('faceMesh');
